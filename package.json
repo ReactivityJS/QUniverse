@@ -1,0 +1,18 @@
+{
+  "name": "quniverse",
+  "version": "0.1.0",
+  "description": "QUniverse — a Qu-based ecosystem: shared relay, app shell, router, directory, notifications, and interoperating apps built on the Qu framework.",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test"
+  },
+  "license": "UNLICENSED",
+  "dependencies": {
+    "qu-core": "github:ReactivityJS/Qu#claude/quniverse-ecosystem-architecture-cd289p"
+  }
+}
