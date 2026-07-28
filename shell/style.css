@@ -1,9 +1,19 @@
+/*
+ * `--bg`/`--accent`/`--text` fall back to their own hardcoded defaults via
+ * `var(--qu-<name>, <default>)` — the `--qu-*` custom properties are what
+ * qu-core/src/ui/theme.js's applyTheme() actually sets on this same
+ * element, live, from this deployment's relay-config/theme (see qu-core's
+ * relay-admin Theme panel). A deployment that never configured one simply
+ * never gets a `--qu-*` value at all, so every var() falls through to the
+ * default listed here unchanged — this file's own look is never lost,
+ * only ever overridden.
+ */
 :root {
-  --bg: #0f1115;
+  --bg: var(--qu-bg, #0f1115);
   --panel: #161922;
-  --text: #e6e8ee;
+  --text: var(--qu-text, #e6e8ee);
   --muted: #9aa2b1;
-  --accent: #7dd3fc;
+  --accent: var(--qu-accent, #7dd3fc);
   --err: #f87171;
   --border: #262b38;
   font-size: 16px;

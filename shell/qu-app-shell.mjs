@@ -27,6 +27,7 @@ import {
 } from 'qu-core/src/index.js';
 import { loadOrCreateIdentity, relayUrl } from 'qu-core/src/ui/session-bootstrap.js';
 import { createWindowHashSource } from 'qu-core/src/ui/router-browser.js';
+import { applyTheme } from 'qu-core/src/ui/theme.js';
 import { renderIdentityView } from './identity-screen.mjs';
 
 function wait(ms) { return new Promise((r) => setTimeout(r, ms)); }
@@ -51,6 +52,7 @@ export class QuAppShellElement extends HTMLElement {
 
   disconnectedCallback() {
     this._stopRouter?.();
+    this._stopTheme?.();
   }
 
   async _init() {
@@ -59,6 +61,7 @@ export class QuAppShellElement extends HTMLElement {
       .use(createSpacesPlugin())
       .use(createProfilesPlugin());
     this.qu = qu; // MUST be set before any descendant <qu-*> element renders — see file doc above
+    this._stopTheme = applyTheme(qu); // this deployment's relay-config/theme (qu-core's admin/relay-admin panel), live — see that file's own doc for the null/never-set behavior
 
     this._services = undefined; // populated once /relay/services resolves — see _renderGenericSpaceDefault()'s own use below
     this._routeGen = 0; // bumped on every _renderRoute() call, so a stale async space-manifest read can tell it's no longer current, see _renderGenericSpaceDefault()
@@ -112,7 +115,23 @@ export class QuAppShellElement extends HTMLElement {
           channel.connect(),
           wait(10000).then(() => { throw new Error('Zeitüberschreitung beim Verbindungsaufbau'); }),
         ]);
-        await qu.connect(channel, { pushTopics: [''] });
+        const repl = await qu.connect(channel, { pushTopics: [''] });
+        // `pushTopics` only pushes FUTURE writes from here on (network/
+        // replication/default.js's own doc) — it never catches this session
+        // up on data that already existed on the relay before this exact
+        // connection (e.g. relay-config/theme, an admin-set theme from
+        // before this page load). `sync({topic})` queries `${topic}/**`
+        // PLUS the topic's own document (network/replication/default.js's
+        // `qu.sync.request` handler) — there is no "sync literally
+        // everything" topic (an empty topic builds the pattern `/**`,
+        // which no real id — none start with a leading `/` — ever
+        // matches), so this syncs the one known prefix a fresh shell
+        // session actually needs to catch up on today. The synced qubits
+        // go through the same runtime.ingest() a live push does, so an
+        // already-registered `.on()` listener (applyTheme() included)
+        // still fires normally for them, just once, right here, instead
+        // of never.
+        await repl.sync({ topic: 'relay-config', since: 0 }).catch((e) => console.error('[qu-app-shell] initial relay-config sync failed:', e));
         return;
       } catch (e) {
         console.error('[qu-app-shell] connect failed, retrying:', e);
