@@ -24,6 +24,7 @@ import { bridgeWebSocketServer } from 'qu-core/relay/node-ws-bridge.mjs';
 import { startServer } from 'qu-core/server/static-server.mjs';
 import { createRelayInfoRoutes } from 'qu-core/server/relay-info-routes.mjs';
 import { createServiceRegistry } from 'qu-core/server/service-registry.mjs';
+import { createPlatformRegistry } from 'qu-core/server/platform-registry.mjs';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const port = Number(process.env.PORT) || 8788;
@@ -74,6 +75,22 @@ const registry = createServiceRegistry([
   // { id: 'forum', category: 'service', label: 'Forum', entry: '/services/forum/index.html', icon: '💬', spaceMode: 'perInstance' },
 ]);
 
+// Optional PLATFORM features (contacts, CMS-homepage, notification
+// aggregation, directory, incognito) — separate from the app catalog above:
+// this toggles which pieces of the ecosystem SHELL itself a deployment
+// wants active, administered the same way (admin/config/platform-modules,
+// examples/relay-admin's own panel in qu-core). All enabled by default;
+// QU_PLATFORM_MODULES_DISABLED narrows it at startup, same convention as
+// qu-core's own index.js. The shell doesn't read this yet (no real
+// feature screens exist to gate — see qu-core's own platform-registry.mjs
+// commit message for why that's deliberately deferred), but the toggle
+// mechanism itself is live from day one, same as the (currently empty)
+// service catalog above.
+const platformRegistry = createPlatformRegistry();
+for (const id of (process.env.QU_PLATFORM_MODULES_DISABLED || '').split(',').map((s) => s.trim()).filter(Boolean)) {
+  platformRegistry.setEnabled(id, false);
+}
+
 const relayIdentity = await QuIdentity.generate(); // ephemeral for now — pin a persisted identity (see qu-core's own index.js) before a real deployment
 
 let relayApi;
@@ -112,6 +129,7 @@ relayApi = await createRelay({
   connectionGate,
   relayAdmins,
   serviceRegistry: registry,
+  platformRegistry,
 });
 await relayApi.relay.publishProfile();
 bridgeWebSocketServer(server, relayApi, { path: '/relay' });
