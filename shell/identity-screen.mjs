@@ -8,7 +8,8 @@
 // testability (none — DOM-only, verified via a real browser, see the
 // Phase 1 plan's own verification section).
 
-import { isValidFingerprint, DIRECTORY_ID } from 'qu-core/src/index.js';
+import { isValidFingerprint, DIRECTORY_ID, buildPath } from 'qu-core/src/index.js';
+import { canShare, shareContent } from 'qu-core/src/ui/share.mjs';
 
 /**
  * Renders into `container` (cleared first). `qu` is the shell's shared,
@@ -37,12 +38,14 @@ export function renderIdentityView(container, { qu, fingerprint }) {
   fpCode.textContent = fingerprint;
   fpLine.append('Fingerprint: ', fpCode);
 
+  const shareSection = renderShareButton(fingerprint);
+
   const appsHeading = document.createElement('h3');
   appsHeading.textContent = 'Apps';
   const appsList = document.createElement('ul');
   appsList.className = 'qu-identity-apps';
 
-  container.append(card, fpLine, appsHeading, appsList);
+  container.append(card, fpLine, shareSection, appsHeading, appsList);
 
   const isOwn = fingerprint === qu.fingerprint;
   if (isOwn) {
@@ -50,6 +53,53 @@ export function renderIdentityView(container, { qu, fingerprint }) {
   }
 
   renderAppParticipation(qu, fingerprint, appsList);
+}
+
+/**
+ * A "Teilen" button for THIS profile's link — shown for any fingerprint
+ * being viewed (own or someone else's), since "share this profile's link"
+ * makes sense regardless of whose identity it is. Uses qu-core/src/ui/
+ * share.mjs's generic shareContent() — the concrete, real, permanent
+ * consumer that proves the helper actually works end-to-end, not a
+ * speculative "for later" import.
+ */
+function renderShareButton(fingerprint) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'qu-identity-share';
+  btn.textContent = canShare() ? '📤 Teilen' : '📋 Link kopieren';
+
+  const status = document.createElement('span');
+  status.className = 'qu-identity-share-status';
+  status.hidden = true;
+
+  btn.addEventListener('click', async () => {
+    const url = `${location.origin}${location.pathname}${buildPath(`~${fingerprint}`)}`;
+    btn.disabled = true;
+    try {
+      const result = await shareContent({ title: 'QUniverse-Profil', text: fingerprint, url });
+      if (result === 'copied') {
+        status.textContent = 'Link kopiert.';
+        status.hidden = false;
+      } else if (result === 'unsupported') {
+        status.textContent = `Teilen nicht unterstützt — Link: ${url}`;
+        status.hidden = false;
+      }
+      // 'shared'/'cancelled'/'noop' need no extra status — the OS share
+      // sheet itself was the feedback, or there was nothing to say.
+    } catch (e) {
+      console.error('[identity-screen] share failed:', e);
+      status.textContent = 'Teilen fehlgeschlagen.';
+      status.hidden = false;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  const wrap = document.createElement('p');
+  wrap.className = 'qu-identity-share-wrap';
+  wrap.append(btn, status);
+  return wrap;
 }
 
 function renderVisibilityToggle(qu) {
