@@ -1,10 +1,11 @@
 # QUniverse — umgezogen in das Qu-Repo
 
 **Dieses Repo wird nicht mehr weiterentwickelt und ist nicht mehr
-lauffähig.** QUniverse lebt jetzt als Unterordner im
-[`ReactivityJS/Qu`](https://github.com/ReactivityJS/Qu)-Repo:
+lauffähig.** QUniverse lebt jetzt direkt im Repo-Root von
+[`ReactivityJS/Qu`](https://github.com/ReactivityJS/Qu) — kein Unterordner
+mehr, ein einziger Server-Prozess (`index.js`) für Relay UND Shell:
 
-👉 **[`ReactivityJS/Qu` → `quniverse/`](https://github.com/ReactivityJS/Qu/tree/claude/quniverse-ecosystem-architecture-cd289p/quniverse)**
+👉 **[`ReactivityJS/Qu`](https://github.com/ReactivityJS/Qu)**
 
 ## Warum der Umzug
 
@@ -17,16 +18,25 @@ Da Qu (noch) keine Release-Tags/kein veröffentlichtes npm-Paket hat und
 sich mit praktisch jedem Commit ändert, gab es dafür in einem separaten
 Repo keinen stabilen, git-freien Bezugspunkt.
 
-Die Lösung: QUniverse lebt jetzt als Unterordner direkt im Qu-Repo, mit
-reinen relativen ES-Module-Importen (`../src/index.js` usw.) statt einer
+Die Lösung: QUniverse lebt jetzt direkt im Qu-Repo-Root, mit reinen
+relativen ES-Module-Importen (`./src/index.js` usw.) statt einer
 Paket-Abhängigkeit — kein `package.json`, kein `npm install`, kein
-`node_modules/`, keine `git`-Abhängigkeit mehr nötig.
+`node_modules/`, keine `git`-Abhängigkeit mehr nötig. In einem zweiten
+Schritt wurde zusätzlich der bis dahin separate Relay-Prozess
+(`quniverse/server.mjs`) in Qu's eigenes, bereits admin-feature-reiches
+`index.js` zusammengelegt — genau EIN Server-Einstiegspunkt, genau EIN
+`sw.js`, drei unabhängige Umgebungsvariablen (`QU_SERVE_QUNIVERSE`/
+`QU_SERVE_DOCS`/`QU_SERVE_EXAMPLES`) schalten die HTTP-Inhaltsbereiche
+(QUniverse-Shell/Apps, Dokumentation, Qu's Lern-Demos) unabhängig
+voneinander ein oder aus.
 
 ## Was jetzt tun
 
-- Quellcode, Doku, Umgebungsvariablen, Start-Anleitung: siehe
-  [`quniverse/README.md`](https://github.com/ReactivityJS/Qu/blob/claude/quniverse-ecosystem-architecture-cd289p/quniverse/README.md)
-  im Qu-Repo.
+- Quellcode, Doku, Umgebungsvariablen, Start-Anleitung: siehe Qu's eigenem
+  [`README.md`](https://github.com/ReactivityJS/Qu/blob/main/README.md)
+  (Abschnitt "QUniverse") und
+  [`services/README.md`](https://github.com/ReactivityJS/Qu/blob/main/services/README.md)
+  (App-/Service-Template).
 - Dieses Repo (`ReactivityJS/QUniverse`) bleibt aus historischen Gründen
   bestehen, wird aber **nicht gelöscht und nicht weiter aktualisiert** —
   neue Issues/PRs bitte gegen `ReactivityJS/Qu` stellen.
