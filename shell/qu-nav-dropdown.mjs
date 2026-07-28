@@ -9,10 +9,13 @@
 // bubbles:true but NOT composed:true, so a shadow boundary anywhere in
 // this shell's render tree would silently swallow them).
 //
-// Fires a bubbling `qu-app-select` CustomEvent (`detail: {id, entry}`) on
-// selecting a catalog entry — the shell listens for this ONCE at its own
+// Fires a bubbling `qu-app-select` CustomEvent (`detail: {id, entry, mount}`)
+// on selecting a catalog entry — the shell listens for this ONCE at its own
 // root rather than this component knowing how to navigate anywhere itself
-// (same separation qu-profile-card/qu-people-search already use).
+// (same separation qu-profile-card/qu-people-search already use). `entry`/
+// `mount` are passed through exactly as the catalog declared them (either
+// can be undefined) — qu-app-shell.mjs's own listener decides which one to
+// act on (mount preferred, entry as fallback/redirect).
 
 import { visibleCatalogEntries, sortCatalog } from './nav-catalog.mjs';
 
@@ -87,7 +90,7 @@ export class QuNavDropdownElement extends HTMLElement {
       item.textContent = `${entry.icon ?? FALLBACK_ICON} ${entry.label}`;
       item.addEventListener('click', () => {
         this._close();
-        this.dispatchEvent(new CustomEvent('qu-app-select', { detail: { id: entry.id, entry: entry.entry }, bubbles: true }));
+        this.dispatchEvent(new CustomEvent('qu-app-select', { detail: { id: entry.id, entry: entry.entry, mount: entry.mount }, bubbles: true }));
       });
       li.appendChild(item);
       menu.appendChild(li);

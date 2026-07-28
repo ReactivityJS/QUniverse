@@ -2,15 +2,16 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { visibleCatalogEntries, sortCatalog } from './nav-catalog.mjs';
 
-test('visibleCatalogEntries(): drops admin-category, disabled, and entry-less definitions', () => {
+test('visibleCatalogEntries(): drops admin-category, disabled, and loader-less definitions; keeps mount-only ones', () => {
   const services = [
     { id: 'forum', category: 'service', label: 'Forum', entry: '/x', enabled: true },
     { id: 'relay-admin', category: 'admin', label: 'Relay-Admin', entry: '/y', enabled: true },
     { id: 'disabled-app', category: 'service', label: 'Disabled', entry: '/z', enabled: false },
     { id: 'mount-only', category: 'service', label: 'Mount Only', mount: './x.mjs' },
+    { id: 'no-loader', category: 'service', label: 'No Loader' },
   ];
   const visible = visibleCatalogEntries(services);
-  assert.deepEqual(visible.map((s) => s.id), ['forum']);
+  assert.deepEqual(visible.map((s) => s.id), ['forum', 'mount-only']);
 });
 
 test('visibleCatalogEntries(): a definition with enabled left undefined is treated as enabled (only enabled===false is excluded)', () => {

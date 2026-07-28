@@ -17,9 +17,17 @@
 // existing bubbling-event components inside a NEW wrapping element, so
 // it's worth stating as a real constraint, not an assumed default.
 //
-// Phase 1 scope: apps are `entry`-redirects only (`location.href = entry`)
-// — there is no in-shell mounting yet (a `mount` manifest field exists for
-// a LATER phase, unused here).
+// A matched service's `mount` (server/service-registry.mjs's App Manifest
+// field, see src/ui/router.js's own doc) is preferred over `entry` whenever
+// both/either is present: `_mountApp()` below dynamically imports the
+// module and calls its `mount(container, ctx) -> stopFn` export directly
+// into the shell's OWN screen area — no full-page navigation, no separate
+// origin/tab, everything stays reactive on the SAME `this.qu` instance
+// (listeners, notifications, routing) the shell itself already runs. Only
+// a service with `entry` and no `mount` still falls back to
+// `location.href = entry` (a fully standalone page, e.g. anything not yet
+// migrated to the mount contract). See `_mountApp()`'s own doc for the
+// exact contract a mount module must implement.
 
 import {
   createNetworkPlugin, createSpacesPlugin, createProfilesPlugin, createWebSocketChannel,
@@ -53,6 +61,7 @@ export class QuAppShellElement extends HTMLElement {
   disconnectedCallback() {
     this._stopRouter?.();
     this._stopTheme?.();
+    this._stopMountedApp?.();
   }
 
   async _init() {
@@ -72,7 +81,16 @@ export class QuAppShellElement extends HTMLElement {
       location.hash = buildPath(`~${e.detail.fingerprint}`);
     });
     this.addEventListener('qu-app-select', (e) => {
-      location.href = e.detail.entry;
+      // A mount-capable app navigates IN-PAGE (a hash change the router
+      // itself resolves back into a mount decision) — never a full-page
+      // `location.href`, which would tear down `this.qu`/the whole shell
+      // for no reason. `entry`-only (no `mount`) still leaves the shell
+      // entirely via a real navigation, same as before this feature.
+      if (e.detail.mount) {
+        location.hash = buildPath(e.detail.id);
+      } else {
+        location.href = e.detail.entry;
+      }
     });
 
     const router = createRouter({ ...createWindowHashSource(), services: undefined });
@@ -144,6 +162,8 @@ export class QuAppShellElement extends HTMLElement {
     const screen = this._screenEl;
     if (!screen) return; // not laid out yet (still bootstrapping) — the router's own first emission can race _buildLayout(), a later route change will re-render correctly once it's up
     const gen = ++this._routeGen; // see _renderGenericSpaceDefault()'s own use of this
+    this._stopMountedApp?.(); // ANY route change tears down a previously mounted app first — no partial in-place updates yet, see _mountApp()'s own doc
+    this._stopMountedApp = null;
     screen.textContent = '';
 
     if (decision.kind === 'home') {
@@ -182,13 +202,15 @@ export class QuAppShellElement extends HTMLElement {
 
     // `app` (legacy bare fixed-app bookmark, e.g. `#/chat`) and `space`
     // (space-first with a resolved appId, e.g. `#/~fp/cms/home` or
-    // `#/board-42/forum`) both resolve to the exact same Phase-1 action:
-    // redirect to the app's own standalone `entry` page. Phase 1 apps are
-    // `entry`-redirects only (see file doc) — passing `spaceId` through to
-    // the target app (so it renders THAT space rather than its own default)
-    // is real, but deliberately deferred to whenever a service actually
-    // needs it (Phase 4's reference migration), not built speculatively here.
+    // `#/board-42/forum`) both resolve to the same action: mount the app
+    // IN-PLACE if it declared `mount` (see `_mountApp()`), else fall back
+    // to redirecting to its standalone `entry` page (a service not yet
+    // migrated to the mount contract).
     if (decision.kind === 'app' || decision.kind === 'space') {
+      if (decision.mount) {
+        this._mountApp(screen, decision, gen);
+        return;
+      }
       const redirecting = document.createElement('p');
       redirecting.textContent = `Weiterleitung zu ${decision.appId} …`;
       screen.appendChild(redirecting);
@@ -245,7 +267,11 @@ export class QuAppShellElement extends HTMLElement {
 
     screen.textContent = '';
     const appId = manifest?.appId;
-    const match = appId && this._services?.find((s) => s.id === appId && s.enabled !== false && s.entry);
+    const match = appId && this._services?.find((s) => s.id === appId && s.enabled !== false && (s.entry || s.mount));
+    if (match?.mount) {
+      this._mountApp(screen, { spaceId, appId, segments: [spaceId, appId], mount: match.mount }, gen);
+      return;
+    }
     if (match) {
       const redirecting = document.createElement('p');
       redirecting.textContent = `Weiterleitung zu ${appId} …`;
@@ -263,6 +289,78 @@ export class QuAppShellElement extends HTMLElement {
     home.href = buildPath();
     home.textContent = 'Zur Startseite';
     screen.append(msg, home);
+  }
+
+  /**
+   * Dynamically imports `decision.mount` (a module specifier — an absolute
+   * or root-relative path, e.g. `/services/forum/mount.mjs`) and calls its
+   * `mount(container, ctx)` export, keeping whatever it returns as the
+   * "stop" callback for the NEXT route change (`_renderRoute()`'s own
+   * `_stopMountedApp?.()` call, always run before anything else) to invoke.
+   *
+   * The mount CONTRACT (deliberately minimal — no real service uses this
+   * yet, so anything beyond what's needed to prove the mechanism itself
+   * would be speculative):
+   *   `export function mount(container, { qu, spaceId, appId, segments }) -> stopFn?`
+   *   - `container`: an emptied HTMLElement owned by the shell — the
+   *     module renders its own UI into it however it likes (its own Custom
+   *     Elements, manual DOM, `<qu-view>`/`<qu-list>`, anything).
+   *   - `qu`: THIS shell's own, already-connected Qu instance — the whole
+   *     point of mounting instead of redirecting: one identity, one
+   *     connection, one reactive Runtime for the entire ecosystem, not a
+   *     fresh bootstrap per app.
+   *   - `spaceId`/`appId`/`segments`: exactly `decideRoute()`'s own fields
+   *     (`segments` is the FULL hash path — a mount module wanting its own
+   *     internal sub-routing slices off `segments.slice(2)` itself; this
+   *     shell has no opinion on what a mounted app does with the rest of
+   *     the path).
+   *   - Return value: an optional cleanup function, called right before
+   *     the NEXT route change (of ANY kind, mounted or not) tears this
+   *     screen down — same "returns an unsubscribe" convention every other
+   *     live subscription in this codebase already uses. A module that
+   *     returns nothing simply has nothing to clean up.
+   *
+   * No partial/in-place updates: navigating from one mount decision to
+   * ANOTHER (even the same appId with a different sub-path) always fully
+   * stops and re-mounts — the simplest correct behavior, and the only one
+   * with a real consumer to verify it against so far (see this feature's
+   * own test coverage). A module wanting cheaper sub-path transitions can
+   * always do its OWN internal routing inside a single mount() call by
+   * reading `segments` reactively itself; nothing here prevents that.
+   */
+  async _mountApp(screen, decision, gen) {
+    const loading = document.createElement('p');
+    loading.textContent = `Lädt ${decision.appId} …`;
+    screen.appendChild(loading);
+
+    let mod;
+    try {
+      mod = await import(/* webpackIgnore: true */ decision.mount);
+    } catch (e) {
+      console.error(`[qu-app-shell] failed to load mount module for "${decision.appId}" (${decision.mount}):`, e);
+      if (gen !== this._routeGen) return; // route moved on while importing
+      screen.textContent = '';
+      const err = document.createElement('p');
+      err.className = 'qu-shell-error';
+      err.textContent = `App "${decision.appId}" konnte nicht geladen werden.`;
+      screen.append(err);
+      return;
+    }
+    if (gen !== this._routeGen) return; // route moved on while importing — a later _renderRoute() already owns `screen`
+
+    if (typeof mod.mount !== 'function') {
+      console.error(`[qu-app-shell] mount module for "${decision.appId}" (${decision.mount}) has no mount() export`);
+      screen.textContent = '';
+      const err = document.createElement('p');
+      err.className = 'qu-shell-error';
+      err.textContent = `App "${decision.appId}" ist fehlerhaft konfiguriert (kein mount()-Export).`;
+      screen.append(err);
+      return;
+    }
+
+    screen.textContent = '';
+    const stop = mod.mount(screen, { qu: this.qu, spaceId: decision.spaceId, appId: decision.appId, segments: decision.segments });
+    this._stopMountedApp = typeof stop === 'function' ? stop : null;
   }
 }
 

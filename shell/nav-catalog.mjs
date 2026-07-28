@@ -6,9 +6,9 @@
 
 const CATEGORY_ORDER = ['service', 'example', 'documentation', 'custom'];
 
-/** Which catalog entries qu-nav-dropdown ever shows: no admin-category entries (this is a product nav, not a dev/ops catalog), nothing explicitly disabled, and only entries this phase can actually act on (a set `entry` — a `mount`-only definition has nothing to redirect to yet). */
+/** Which catalog entries qu-nav-dropdown ever shows: no admin-category entries (this is a product nav, not a dev/ops catalog), nothing explicitly disabled, and only entries this shell can actually act on — a set `entry` (redirect) and/or `mount` (in-place, see qu-app-shell.mjs's mount loader). A definition with neither has nothing to load at all yet. */
 export function visibleCatalogEntries(services) {
-  return services.filter((s) => s.category !== 'admin' && s.enabled !== false && s.entry);
+  return services.filter((s) => s.category !== 'admin' && s.enabled !== false && (s.entry || s.mount));
 }
 
 /** Category first (fixed display order, unknown categories sort last), then `navOrder` ascending (missing sorts last within its category), then label as the final tiebreak. */
