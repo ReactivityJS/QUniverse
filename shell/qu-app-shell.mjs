@@ -31,7 +31,7 @@
 
 import {
   createNetworkPlugin, createSpacesPlugin, createProfilesPlugin, createWebSocketChannel,
-  createRouter, buildPath,
+  createRouter, buildPath, inboxId,
 } from 'qu-core/src/index.js';
 import { loadOrCreateIdentity, relayUrl } from 'qu-core/src/ui/session-bootstrap.js';
 import { createWindowHashSource } from 'qu-core/src/ui/router-browser.js';
@@ -105,7 +105,7 @@ export class QuAppShellElement extends HTMLElement {
       .catch((e) => { console.error('[qu-app-shell] failed to load /relay/services:', e); this._services = []; router.setServices([]); });
   }
 
-  /** Persistent header (nav dropdown + own profile card) + the screen area the router swaps content into — built once, right after `.qu` is set. */
+  /** Persistent header (nav dropdown + notification badge + own profile card) + the screen area the router swaps content into — built once, right after `.qu` is set. */
   _buildLayout() {
     this.textContent = '';
 
@@ -115,9 +115,10 @@ export class QuAppShellElement extends HTMLElement {
     brand.className = 'qu-shell-brand';
     brand.textContent = 'QUniverse';
     const nav = document.createElement('qu-nav-dropdown');
+    const notifications = document.createElement('qu-notification-badge');
     const ownCard = document.createElement('qu-profile-card');
     ownCard.setAttribute('href', buildPath(`~${this.qu.fingerprint}`));
-    header.append(brand, nav, ownCard);
+    header.append(brand, nav, notifications, ownCard);
 
     this._screenEl = document.createElement('main');
     this._screenEl.className = 'qu-shell-screen';
@@ -150,6 +151,23 @@ export class QuAppShellElement extends HTMLElement {
         // still fires normally for them, just once, right here, instead
         // of never.
         await repl.sync({ topic: 'relay-config', since: 0 }).catch((e) => console.error('[qu-app-shell] initial relay-config sync failed:', e));
+        // Own inbox (`inbox-<fp>/notifications/*` + `inbox-<fp>/requests/*` —
+        // qu-notification-badge.mjs's two merged feeds): syncing the whole
+        // `inbox-<fp>` prefix catches up on both subtrees in one call
+        // (`sync({topic})` queries `${topic}/**`, matching any depth under
+        // it). `subscribe()` on top registers this prefix for LIVE pushes
+        // too — genuinely necessary, not redundant with the badge's own
+        // `.on()`/`.map()` calls: those trigger `qu.setSubscribeHandler()`'s
+        // `subscribeDispatch` (network/index.js), which only fans out to
+        // CURRENTLY connected replication instances at the moment `.map()`
+        // is called — and the badge subscribes during `_buildLayout()`,
+        // BEFORE this connection exists at all, so that fan-out had nothing
+        // to reach. This explicit call is what actually makes the inbox
+        // live, independent of ordering between mounting the badge and
+        // connecting.
+        const inboxTopic = inboxId(qu.fingerprint);
+        await repl.sync({ topic: inboxTopic, since: 0 }).catch((e) => console.error('[qu-app-shell] initial inbox sync failed:', e));
+        await repl.subscribe(inboxTopic).catch((e) => console.error('[qu-app-shell] inbox subscribe failed:', e));
         return;
       } catch (e) {
         console.error('[qu-app-shell] connect failed, retrying:', e);
