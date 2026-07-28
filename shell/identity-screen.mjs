@@ -10,6 +10,7 @@
 
 import { isValidFingerprint, DIRECTORY_ID, buildPath } from 'qu-core/src/index.js';
 import { canShare, shareContent } from 'qu-core/src/ui/share.mjs';
+import { isPushSupported, getExistingSubscription, subscribeToPush, unsubscribeFromPush } from 'qu-core/src/ui/push.mjs';
 
 /**
  * Renders into `container` (cleared first). `qu` is the shell's shared,
@@ -18,7 +19,7 @@ import { canShare, shareContent } from 'qu-core/src/ui/share.mjs';
  * `<qu-profile-card>` it appends resolves `.qu` via the normal findQu()
  * walk-up with zero extra wiring.
  */
-export function renderIdentityView(container, { qu, fingerprint }) {
+export function renderIdentityView(container, { qu, fingerprint, repl, swRegistration, vapidPublicKey }) {
   container.textContent = '';
 
   if (!isValidFingerprint(fingerprint)) {
@@ -50,6 +51,7 @@ export function renderIdentityView(container, { qu, fingerprint }) {
   const isOwn = fingerprint === qu.fingerprint;
   if (isOwn) {
     container.appendChild(renderVisibilityToggle(qu));
+    container.appendChild(renderPushToggle(qu, { repl, swRegistration, vapidPublicKey }));
   }
 
   renderAppParticipation(qu, fingerprint, appsList);
@@ -131,6 +133,73 @@ function renderVisibilityToggle(qu) {
     qu.setDirectoryVisible(checkbox.checked)
       .catch((e) => { console.error('[identity-screen] setDirectoryVisible failed:', e); })
       .finally(() => { checkbox.disabled = false; });
+  });
+
+  return wrap;
+}
+
+/**
+ * The own-profile-only "enable notifications" toggle — real, permanent
+ * consumer of qu-core/src/ui/push.mjs, the platform-level push mechanism
+ * ANY app on this deployment gets for free via modules/notifications.js's
+ * createNotificationPushRule() (see QUniverse's own server.mjs). Same
+ * checkbox shape as renderVisibilityToggle() above, disabled until the
+ * CURRENT subscription state has actually loaded (never toggle blind).
+ *
+ * `repl`/`swRegistration`/`vapidPublicKey` all come from qu-app-shell.mjs's
+ * own bootstrap and can each still be `null`/undefined at render time
+ * (still connecting, no Service Worker support, push disabled server-side)
+ * — every one of those is a disabled-with-explanation state, never a
+ * crash or a silently non-functional checkbox.
+ */
+function renderPushToggle(qu, { repl, swRegistration, vapidPublicKey }) {
+  const wrap = document.createElement('label');
+  wrap.className = 'qu-identity-push';
+  const checkbox = document.createElement('input');
+  checkbox.type = 'checkbox';
+  checkbox.disabled = true;
+  const labelText = document.createElement('span');
+  labelText.textContent = ' Push-Benachrichtigungen aktiviert';
+  wrap.append(checkbox, labelText);
+
+  const hint = document.createElement('span');
+  hint.className = 'qu-identity-push-hint';
+  wrap.appendChild(hint);
+
+  if (!isPushSupported()) {
+    hint.textContent = ' (von diesem Browser nicht unterstützt)';
+    return wrap;
+  }
+  if (!vapidPublicKey) {
+    hint.textContent = ' (auf diesem Relay deaktiviert)';
+    return wrap;
+  }
+  if (!swRegistration || !repl) {
+    hint.textContent = ' (verbindet …)';
+    return wrap;
+  }
+
+  getExistingSubscription(swRegistration).then((sub) => {
+    checkbox.checked = !!sub;
+    checkbox.disabled = false;
+  }).catch((e) => { console.error('[identity-screen] initial push-subscription read failed:', e); checkbox.disabled = false; });
+
+  checkbox.addEventListener('change', async () => {
+    checkbox.disabled = true;
+    hint.textContent = '';
+    try {
+      if (checkbox.checked) {
+        await subscribeToPush(qu, repl, swRegistration, vapidPublicKey);
+      } else {
+        await unsubscribeFromPush(qu, repl, swRegistration);
+      }
+    } catch (e) {
+      console.error('[identity-screen] push toggle failed:', e);
+      checkbox.checked = !checkbox.checked; // revert — the attempted change did not actually take effect
+      hint.textContent = ` (fehlgeschlagen: ${e.message})`;
+    } finally {
+      checkbox.disabled = false;
+    }
   });
 
   return wrap;

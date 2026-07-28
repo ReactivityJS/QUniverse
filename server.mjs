@@ -18,11 +18,14 @@ import { fileURLToPath } from 'node:url';
 import {
   QuIdentity, QuStore, MemoryAdapter, NullAdapter, MemoryFileStorageAdapter,
   isValidFingerprint, createRateLimiter, createConnectionGate, enableConsoleDebug,
+  createNotificationPushRule,
 } from 'qu-core/src/index.js';
 import { createRelay } from 'qu-core/relay/relay.mjs';
 import { bridgeWebSocketServer } from 'qu-core/relay/node-ws-bridge.mjs';
+import { generateVapidKeys, sendWebPush } from 'qu-core/relay/webpush.mjs';
 import { startServer } from 'qu-core/server/static-server.mjs';
 import { createRelayInfoRoutes } from 'qu-core/server/relay-info-routes.mjs';
+import { createPushRoutes } from 'qu-core/server/push-routes.mjs';
 import { createServiceRegistry } from 'qu-core/server/service-registry.mjs';
 import { createPlatformRegistry } from 'qu-core/server/platform-registry.mjs';
 
@@ -91,6 +94,45 @@ for (const id of (process.env.QU_PLATFORM_MODULES_DISABLED || '').split(',').map
   platformRegistry.setEnabled(id, false);
 }
 
+// Web Push (qu-core/relay/webpush.mjs) — ON by default, no setup required:
+// unless QU_VAPID_PUBLIC_KEY/QU_VAPID_PRIVATE_KEY are explicitly set, a
+// fresh keypair is generated on every start. This deployment is still
+// fully ephemeral/in-memory (see relayIdentity's own "pin a persisted
+// identity" comment below) — VAPID keys share that same limitation for
+// now: every restart invalidates every subscription a browser already
+// holds, until BOTH the relay identity and these keys get a real
+// persisted store, same as qu-core's own index.js documents for its
+// QU_STORE=memory mode. `QU_PUSH=0` opts out entirely (no keys generated,
+// `/push/vapid-public-key` reports `null`, src/ui/push.mjs's
+// subscribeToPush() throws instead of silently doing nothing).
+const pushDisabled = process.env.QU_PUSH === '0';
+let vapidPublicKey = process.env.QU_VAPID_PUBLIC_KEY || null;
+let vapidPrivateKey = process.env.QU_VAPID_PRIVATE_KEY || null;
+if (process.env.QU_VAPID_PUBLIC_KEY && !process.env.QU_VAPID_PRIVATE_KEY) {
+  console.warn('[QUniverse] QU_VAPID_PUBLIC_KEY is set but QU_VAPID_PRIVATE_KEY is missing — ignoring both and auto-generating a fresh pair instead.');
+  vapidPublicKey = null;
+}
+if (!pushDisabled && !(vapidPublicKey && vapidPrivateKey)) {
+  const keys = generateVapidKeys();
+  vapidPublicKey = keys.publicKey;
+  vapidPrivateKey = keys.privateKey;
+}
+const vapidSubject = process.env.QU_VAPID_SUBJECT || 'mailto:admin@example.com';
+const pushEnabled = !pushDisabled && !!(vapidPublicKey && vapidPrivateKey);
+const sendPush = pushEnabled
+  ? ({ subscription, payload }) => sendWebPush({ subscription, payload, vapidKeys: { publicKey: vapidPublicKey, privateKey: vapidPrivateKey }, subject: vapidSubject })
+  : null;
+const pushSubscriptions = new Map();
+// createNotificationPushRule() (qu-core/src/modules/notifications.js) —
+// THE platform-level "services hook in easily" mechanism: any app calling
+// qu.notifyUser() gets push-enabled automatically, no per-app rule or
+// relay-side change needed. A real service adding its OWN push-worthy
+// event type (e.g. a Forum reply) still just calls qu.notifyUser() rather
+// than needing its own createXPushRule() — that escape hatch (relay.mjs's
+// pushRules array) stays available for an app with a genuinely different
+// need, but isn't required for the common case this array starts with.
+const pushRules = [createNotificationPushRule()];
+
 const relayIdentity = await QuIdentity.generate(); // ephemeral for now — pin a persisted identity (see qu-core's own index.js) before a real deployment
 
 let relayApi;
@@ -104,6 +146,7 @@ const server = startServer({
       admins: relayAdmins,
       getAdminConfig: () => relayApi?.getAdminConfig?.() ?? null,
     }),
+    ...createPushRoutes({ publicKey: pushEnabled ? vapidPublicKey : null }),
     {
       match: (p) => p === '/relay/services',
       handle: (_req, res) => {
@@ -118,6 +161,13 @@ const store = new QuStore([
   { prefix: '', adapter: new MemoryAdapter() }, // swap for a durable adapter (e.g. qu-core/src/adapters/node-fs.js's FileSystemStorageAdapter) before a real deployment
   { prefix: 'signal/', adapter: new NullAdapter() },
   { prefix: 'admin/', adapter: new NullAdapter(), replicate: false },
+  // A push subscription is ephemeral control-plane data (this deployment's
+  // OWN copy of what the browser's push service already holds), not
+  // content worth persisting/forwarding to other peers — same NullAdapter/
+  // replicate:false treatment as admin/ above, mirroring qu-core's own
+  // index.js and test/relay-push.test.mjs's store setup for this exact
+  // prefix.
+  { prefix: 'push-subscription/', adapter: new NullAdapter(), replicate: false },
 ]);
 
 relayApi = await createRelay({
@@ -130,6 +180,9 @@ relayApi = await createRelay({
   relayAdmins,
   serviceRegistry: registry,
   platformRegistry,
+  sendPush,
+  pushSubscriptions,
+  pushRules,
 });
 await relayApi.relay.publishProfile();
 bridgeWebSocketServer(server, relayApi, { path: '/relay' });
@@ -138,3 +191,6 @@ console.log(`[QUniverse] Relay listening on ws://localhost:${port}/relay (finger
 console.log(relayAdmins.length
   ? `[QUniverse] Admin fingerprints configured (${relayAdmins.length}): ${relayAdmins.join(', ')}`
   : '[QUniverse] No QU_RELAY_ADMINS configured — no admin write access to relay-services/ or admin/');
+console.log(pushEnabled
+  ? '[QUniverse] Web Push enabled (ephemeral keys unless QU_VAPID_PUBLIC_KEY/QU_VAPID_PRIVATE_KEY are set)'
+  : '[QUniverse] Web Push disabled (QU_PUSH=0)');

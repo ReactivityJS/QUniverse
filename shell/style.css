@@ -146,6 +146,8 @@ span.qu-notification-item { color: var(--muted); cursor: default; }
 .qu-identity-share:disabled { opacity: 0.5; cursor: default; }
 .qu-identity-share-status { color: var(--muted); font-size: 0.85em; }
 .qu-identity-visibility { display: block; margin: 1rem 0; }
+.qu-identity-push { display: block; margin: 1rem 0; }
+.qu-identity-push-hint { color: var(--muted); font-size: 0.85em; }
 .qu-identity-apps { list-style: none; padding: 0; }
 .qu-identity-apps-empty { color: var(--muted); }
 .qu-shell-unknown { color: var(--err); }

@@ -36,6 +36,7 @@ import {
 import { loadOrCreateIdentity, relayUrl } from 'qu-core/src/ui/session-bootstrap.js';
 import { createWindowHashSource } from 'qu-core/src/ui/router-browser.js';
 import { applyTheme } from 'qu-core/src/ui/theme.js';
+import { registerServiceWorker } from 'qu-core/src/ui/push.mjs';
 import { renderIdentityView } from './identity-screen.mjs';
 
 function wait(ms) { return new Promise((r) => setTimeout(r, ms)); }
@@ -103,6 +104,17 @@ export class QuAppShellElement extends HTMLElement {
       .then((res) => res.json())
       .then((services) => { this._services = services; router.setServices(services); })
       .catch((e) => { console.error('[qu-app-shell] failed to load /relay/services:', e); this._services = []; router.setServices([]); });
+
+    // Registered at the ORIGIN ROOT (`/sw.js`, default scope `/`) — see
+    // that file's own doc comment for why this is a platform-level
+    // registration, not per-app. Independent of push support (run
+    // regardless, same "installability doesn't need push" reasoning
+    // examples/chat/app.mjs's own registerServiceWorker() call documents).
+    this._swRegistration = await registerServiceWorker('/sw.js').catch((e) => { console.error('[qu-app-shell] service worker registration failed:', e); return null; });
+    this._vapidPublicKey = await fetch('/push/vapid-public-key')
+      .then((res) => res.json())
+      .then((info) => info.publicKey)
+      .catch((e) => { console.error('[qu-app-shell] failed to load /push/vapid-public-key:', e); return null; });
   }
 
   /** Persistent header (nav dropdown + notification badge + own profile card) + the screen area the router swaps content into — built once, right after `.qu` is set. */
@@ -135,6 +147,7 @@ export class QuAppShellElement extends HTMLElement {
           wait(10000).then(() => { throw new Error('Zeitüberschreitung beim Verbindungsaufbau'); }),
         ]);
         const repl = await qu.connect(channel, { pushTopics: [''] });
+        this._repl = repl; // exposed for identity-screen.mjs's push-toggle (subscribeToPush()/unsubscribeFromPush() both need the replication instance's own sync(), see qu-core/src/ui/push.mjs)
         // `pushTopics` only pushes FUTURE writes from here on (network/
         // replication/default.js's own doc) — it never catches this session
         // up on data that already existed on the relay before this exact
@@ -211,7 +224,10 @@ export class QuAppShellElement extends HTMLElement {
     // which now preserves such caller-supplied extra fields verbatim).
     if (decision.kind === 'space-default') {
       if (decision.spaceId.startsWith('~')) {
-        renderIdentityView(screen, { qu: this.qu, fingerprint: decision.spaceId.slice(1) });
+        renderIdentityView(screen, {
+          qu: this.qu, fingerprint: decision.spaceId.slice(1),
+          repl: this._repl, swRegistration: this._swRegistration, vapidPublicKey: this._vapidPublicKey,
+        });
       } else {
         this._renderGenericSpaceDefault(screen, decision.spaceId, gen);
       }
