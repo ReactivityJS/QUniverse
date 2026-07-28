@@ -9,26 +9,32 @@ Basis des [Qu-Frameworks](https://github.com/ReactivityJS/Qu).
 **Qu ist der Core** (Identität, Spaces, ACL/Verschlüsselung, Netzwerk/Relay,
 wiederverwendbare App-Bausteine wie Spaces/Membership/Profiles/Chat/
 Notifications, reaktive `<qu-*>`-Components) — dieses Repo ist das darauf
-aufbauende **Produkt**: eine konkrete Relay-Deployment-Konfiguration, ein
-Ökosystem-Shell (Willkommensseite, Navigation, Notifications — folgt in
-einer späteren Phase), ein erweitertes Relay-Admin-Dashboard, und die
-konkreten Apps selbst.
+aufbauende **Produkt**: eine konkrete Relay-Deployment-Konfiguration, das
+Ökosystem-Shell (Willkommensseite, Navigation, Identity-Viewer), ein
+erweitertes Relay-Admin-Dashboard, und die konkreten Apps selbst.
 
 Das vollständige Architektur-/Phasenkonzept steht in Qu's eigenem Repo,
 Branch [`claude/quniverse-ecosystem-architecture-cd289p`](https://github.com/ReactivityJS/Qu/tree/claude/quniverse-ecosystem-architecture-cd289p).
 
 ## Status
 
-**Phase 0 (Fundament)** — abgeschlossen auf Qu-Seite: geteilte
-Identity-Bootstrap-Konvention, generisches Notifications-Modul,
-Relay-Rate-Limit/Connection-Limit als laufzeit-konfigurierbare
-Admin-Features, erweitertes App-/Service-Manifest-Format
-(`server/service-registry.mjs`).
+**Phase 0 (Fundament)** — abgeschlossen: geteilte Identity-Bootstrap-
+Konvention, generisches Notifications-Modul, Relay-Rate-Limit/
+Connection-Limit als laufzeit-konfigurierbare Admin-Features, erweitertes
+App-/Service-Manifest-Format (`server/service-registry.mjs`).
 
-Dieses Repo enthält bisher nur das Grundgerüst (`server.mjs`, `services/`)
-— die eigentliche Ökosystem-Shell (Router, `<qu-app-shell>`,
-Navigations-Dropdown, Notification-Feed) sowie die konkreten Apps folgen in
-den nächsten Phasen (siehe Phasenplan in Qu's Architektur-Dokument).
+**Phase 1 (QUniverse-Shell)** — abgeschlossen: echter Router-Dispatch
+(`qu-core/src/ui/router.js`, Node-testbar), `<qu-app-shell>` (bootstrapt
+Identity + Relay-Verbindung, setzt `.qu` für den gesamten Baum),
+`<qu-nav-dropdown>` (liest `/relay/services`, zeigt einen leeren Katalog
+ehrlich statt kaputt an), `~<fp>`/`u/<fp>`-Identity-Viewer (Profilkarte,
+Verzeichnis-Sichtbarkeits-Toggle, App-Teilnahme). Bestehende Apps bleiben
+`entry`-Redirects, kein In-Shell-Mounting. Ende-zu-Ende gegen einen echten
+Relay + echten Browser verifiziert (Playwright).
+
+Noch offen: Notification-Aggregation (Phase 2), CMS-Extraktion (Phase 3),
+die ersten echten Apps unter `services/` (Phase 4) — siehe Phasenplan in
+Qu's Architektur-Dokument.
 
 ## Abhängigkeit von Qu
 

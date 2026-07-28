@@ -63,9 +63,13 @@ const connectionGate = (maxConnectionsEnv != null || allowedFingerprintsEnv.leng
 
 // THIS ecosystem's concrete app catalog — one entry per app under
 // `services/<id>/`, following the App-/Service-Template (services/README.md).
-// Empty for now: Phase 0 ships the relay itself, apps are added in a later
-// phase, each with its own manifest.mjs (server/service-registry.mjs's
-// QUniverse App Manifest fields — icon, spaceMode, notificationTopics, …).
+// Empty for now: no real QUniverse-native app exists yet (Phase 4 migrates
+// the first ones in) — each with its own manifest.mjs (server/service-
+// registry.mjs's QUniverse App Manifest fields — icon, spaceMode,
+// notificationTopics, …). Phase 1's shell/nav-dropdown/router was verified
+// end-to-end against a TEMPORARY entry pointing at Qu's own already-running
+// example app (cross-origin), then reverted — see the Phase 1 plan's own
+// verification section for why that stayed out of the committed catalog.
 const registry = createServiceRegistry([
   // { id: 'forum', category: 'service', label: 'Forum', entry: '/services/forum/index.html', icon: '💬', spaceMode: 'perInstance' },
 ]);

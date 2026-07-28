@@ -53,11 +53,24 @@ link-basierten Eintrag ohne eigenen Code in diesem Repo, als
 laufzeit-veränderlicher `relay-services/<id>`-QuBit (siehe
 `service-registry.mjs`s `attachStore()`).
 
-## Noch offen (spätere Phasen)
+## Ökosystem-Shell (Phase 1, existiert bereits)
 
-Die Ökosystem-Shell (Router-Dispatch, `<qu-app-shell>`, Navigations-
-Dropdown, Notification-Feed) existiert noch nicht — bis dahin ist `entry`
-(eine eigenständige, per Redirect erreichbare Seite) der einzige
-Registrierungsweg. Ein `mount`-Feld für In-Shell-Embedding ist im
-Manifest-Format bereits vorgesehen, aber erst nutzbar, sobald die Shell
-selbst gebaut ist.
+`/index.html` + `/app.mjs` + `/shell/` (`qu-app-shell.mjs`,
+`qu-nav-dropdown.mjs`, `identity-screen.mjs`) bilden die Willkommensseite:
+echter Router-Dispatch (`qu-core/src/ui/router.js`), Navigations-Dropdown
+(liest `/relay/services`, filtert/sortiert nach den Manifest-Feldern oben),
+und `~<fp>`/`u/<fp>`-Identity-Viewer-Routen (Profilkarte, Verzeichnis-
+Sichtbarkeits-Toggle für die eigene Identität, App-Teilnahme via
+`listProfileAttrs`).
+
+**Registrierung bleibt `entry`-basiert** — eine App wird per
+`location.href = entry` geöffnet (eigenständige Seite), nicht in die Shell
+eingebettet. Ein `mount`-Feld für späteres In-Shell-Embedding ist im
+Manifest-Format vorgesehen, aber von der Shell noch nicht konsumiert;
+dieselbe Entscheidung ist bewusst auf eine spätere Phase verschoben (siehe
+Qu's Architektur-Dokument, Branch
+`claude/quniverse-ecosystem-architecture-cd289p`).
+
+**Notification-Feed folgt in Phase 2** (`qu-core/src/modules/
+notifications.js` existiert bereits, ist aber noch nicht in die Shell
+verdrahtet).
