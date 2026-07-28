@@ -60,6 +60,9 @@ export class QuAppShellElement extends HTMLElement {
       .use(createProfilesPlugin());
     this.qu = qu; // MUST be set before any descendant <qu-*> element renders — see file doc above
 
+    this._services = undefined; // populated once /relay/services resolves — see _renderGenericSpaceDefault()'s own use below
+    this._routeGen = 0; // bumped on every _renderRoute() call, so a stale async space-manifest read can tell it's no longer current, see _renderGenericSpaceDefault()
+
     this._buildLayout();
 
     this.addEventListener('qu-profile-open', (e) => {
@@ -77,8 +80,8 @@ export class QuAppShellElement extends HTMLElement {
 
     fetch('/relay/services')
       .then((res) => res.json())
-      .then((services) => router.setServices(services))
-      .catch((e) => { console.error('[qu-app-shell] failed to load /relay/services:', e); router.setServices([]); });
+      .then((services) => { this._services = services; router.setServices(services); })
+      .catch((e) => { console.error('[qu-app-shell] failed to load /relay/services:', e); this._services = []; router.setServices([]); });
   }
 
   /** Persistent header (nav dropdown + own profile card) + the screen area the router swaps content into — built once, right after `.qu` is set. */
@@ -121,6 +124,7 @@ export class QuAppShellElement extends HTMLElement {
   _renderRoute(decision) {
     const screen = this._screenEl;
     if (!screen) return; // not laid out yet (still bootstrapping) — the router's own first emission can race _buildLayout(), a later route change will re-render correctly once it's up
+    const gen = ++this._routeGen; // see _renderGenericSpaceDefault()'s own use of this
     screen.textContent = '';
 
     if (decision.kind === 'home') {
@@ -140,12 +144,32 @@ export class QuAppShellElement extends HTMLElement {
       return;
     }
 
-    if (decision.kind === 'identity') {
-      renderIdentityView(screen, { qu: this.qu, fingerprint: decision.fingerprint });
+    // `space-default`: a Space-id was given (either a `~fp` User-Space or a
+    // generic Space-UUID) but no second (appId) segment — decideRoute()
+    // itself never reaches into a Space's manifest (pure, no I/O), so THIS
+    // is where that default gets decided. A `~fp` always defaults to the
+    // built-in identity screen (no manifest read needed — the identity IS
+    // the space); a generic Space-UUID needs an actual (async) manifest
+    // read for its own optional `appId` field (see spaces.js's buildManifest(),
+    // which now preserves such caller-supplied extra fields verbatim).
+    if (decision.kind === 'space-default') {
+      if (decision.spaceId.startsWith('~')) {
+        renderIdentityView(screen, { qu: this.qu, fingerprint: decision.spaceId.slice(1) });
+      } else {
+        this._renderGenericSpaceDefault(screen, decision.spaceId, gen);
+      }
       return;
     }
 
-    if (decision.kind === 'app') {
+    // `app` (legacy bare fixed-app bookmark, e.g. `#/chat`) and `space`
+    // (space-first with a resolved appId, e.g. `#/~fp/cms/home` or
+    // `#/board-42/forum`) both resolve to the exact same Phase-1 action:
+    // redirect to the app's own standalone `entry` page. Phase 1 apps are
+    // `entry`-redirects only (see file doc) — passing `spaceId` through to
+    // the target app (so it renders THAT space rather than its own default)
+    // is real, but deliberately deferred to whenever a service actually
+    // needs it (Phase 4's reference migration), not built speculatively here.
+    if (decision.kind === 'app' || decision.kind === 'space') {
       const redirecting = document.createElement('p');
       redirecting.textContent = `Weiterleitung zu ${decision.appId} …`;
       screen.appendChild(redirecting);
@@ -156,7 +180,9 @@ export class QuAppShellElement extends HTMLElement {
     if (decision.kind === 'unknown') {
       const unknown = document.createElement('p');
       unknown.className = 'qu-shell-unknown';
-      unknown.textContent = `Unbekannte App: "${decision.appId}"`;
+      unknown.textContent = decision.spaceId
+        ? `Unbekannte App "${decision.appId}" für Space "${decision.spaceId}"`
+        : `Unbekannte App: "${decision.appId}"`;
       const home = document.createElement('a');
       home.href = buildPath();
       home.textContent = 'Zur Startseite';
@@ -168,6 +194,56 @@ export class QuAppShellElement extends HTMLElement {
     const loading = document.createElement('p');
     loading.textContent = 'Lädt …';
     screen.appendChild(loading);
+  }
+
+  /**
+   * A generic (non-`~fp`) Space-UUID with no appId segment given
+   * (`space-default`) — reads that Space's own manifest for an optional
+   * `appId` field (a caller-set convention: `qu.createSpace({..., appId})`,
+   * see spaces.js's buildManifest()) to decide what renders it by default.
+   * No such field, or the field doesn't resolve against the current
+   * catalog -> a plain "no default app" message, never a crash or an
+   * infinite loading spinner.
+   *
+   * `gen` guards against a race: if the hash changes again while this
+   * manifest read is in flight, a NEWER `_renderRoute()` call already
+   * bumped `this._routeGen` and owns `screen` — this stale continuation
+   * must not clobber it.
+   */
+  async _renderGenericSpaceDefault(screen, spaceId, gen) {
+    const loading = document.createElement('p');
+    loading.textContent = 'Lädt …';
+    screen.appendChild(loading);
+
+    let manifest = null;
+    try {
+      const q = await this.qu.get(spaceId);
+      manifest = q?.value ?? null;
+    } catch (e) {
+      console.error('[qu-app-shell] space manifest read failed:', e);
+    }
+    if (gen !== this._routeGen) return; // route moved on while this was in flight
+
+    screen.textContent = '';
+    const appId = manifest?.appId;
+    const match = appId && this._services?.find((s) => s.id === appId && s.enabled !== false && s.entry);
+    if (match) {
+      const redirecting = document.createElement('p');
+      redirecting.textContent = `Weiterleitung zu ${appId} …`;
+      screen.appendChild(redirecting);
+      location.href = match.entry;
+      return;
+    }
+
+    const msg = document.createElement('p');
+    msg.className = 'qu-shell-unknown';
+    msg.textContent = manifest
+      ? `Dieser Space hat keine Standard-App konfiguriert (Space: "${spaceId}").`
+      : `Unbekannter Space: "${spaceId}"`;
+    const home = document.createElement('a');
+    home.href = buildPath();
+    home.textContent = 'Zur Startseite';
+    screen.append(msg, home);
   }
 }
 
